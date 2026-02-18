@@ -11,12 +11,39 @@ import os
 from datetime import datetime
 import tempfile
 import platform
+import subprocess
+import sys
 
 # Page configuration
 st.set_page_config(
     page_title="Stock Analysis Scraper",
     layout="wide"
 )
+
+def find_chromedriver():
+    """Find chromedriver in common locations"""
+    possible_paths = [
+        '/usr/bin/chromedriver',
+        '/usr/lib/chromium/chromedriver',
+        '/usr/lib/chromium-browser/chromedriver',
+        '/snap/bin/chromium.chromedriver',
+        '/usr/local/bin/chromedriver'
+    ]
+    
+    # Try common paths
+    for path in possible_paths:
+        if os.path.exists(path):
+            return path
+    
+    # Try using 'which' command
+    try:
+        result = subprocess.run(['which', 'chromedriver'], capture_output=True, text=True)
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except:
+        pass
+    
+    return None
 
 class StockAnalysisScraper:
     def __init__(self):
@@ -43,52 +70,58 @@ class StockAnalysisScraper:
             chrome_options.add_argument('--disable-gpu')
             chrome_options.add_argument('--disable-blink-features=AutomationControlled')
             chrome_options.add_argument('--window-size=1920,1080')
+            chrome_options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
             
             # Set binary location for Chromium
             system = platform.system()
             
             if system == 'Linux':
-                # For Streamlit Cloud - using chromium and chromium-driver packages
-                chrome_options.binary_location = '/usr/bin/chromium'
-                
-                # Try multiple possible chromedriver locations
-                chromedriver_paths = [
-                    '/usr/bin/chromedriver',
-                    '/usr/lib/chromium/chromedriver',
-                    '/usr/lib/chromium-browser/chromedriver'
+                # For Streamlit Cloud - try multiple binary locations
+                chromium_paths = [
+                    '/usr/bin/chromium',
+                    '/usr/bin/chromium-browser',
+                    '/snap/bin/chromium',
+                    '/usr/bin/google-chrome',
+                    '/usr/bin/google-chrome-stable'
                 ]
                 
-                for driver_path in chromedriver_paths:
-                    if os.path.exists(driver_path):
-                        try:
-                            service = Service(executable_path=driver_path)
-                            self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                            return True
-                        except Exception as e:
-                            continue
+                binary_found = False
+                for path in chromium_paths:
+                    if os.path.exists(path):
+                        chrome_options.binary_location = path
+                        binary_found = True
+                        break
                 
-                # If chromedriver not found in standard locations, try to find it
-                import subprocess
-                try:
-                    # Try to locate chromedriver using which command
-                    result = subprocess.run(['which', 'chromedriver'], capture_output=True, text=True)
-                    if result.returncode == 0:
-                        driver_path = result.stdout.strip()
-                        service = Service(executable_path=driver_path)
+                if not binary_found:
+                    st.error("Chromium/Chrome browser not found. Please ensure it's installed.")
+                    return False
+                
+                # Find chromedriver
+                chromedriver_path = find_chromedriver()
+                
+                if chromedriver_path:
+                    try:
+                        service = Service(executable_path=chromedriver_path)
                         self.driver = webdriver.Chrome(service=service, options=chrome_options)
                         return True
-                except:
-                    pass
-                
-                st.error("ChromeDriver not found. Please ensure chromium-driver is installed.")
-                return False
+                    except Exception as e:
+                        st.error(f"Error creating driver with found chromedriver: {str(e)}")
+                        return False
+                else:
+                    st.error("ChromeDriver not found. Please ensure chromium-driver is installed.")
+                    return False
             
             else:
                 # For local Windows/Mac development
-                from webdriver_manager.chrome import ChromeDriverManager
-                service = Service(ChromeDriverManager().install())
-                self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                return True
+                try:
+                    from webdriver_manager.chrome import ChromeDriverManager
+                    service = Service(ChromeDriverManager().install())
+                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                    return True
+                except:
+                    # Fallback to selenium-manager
+                    self.driver = webdriver.Chrome(options=chrome_options)
+                    return True
             
         except Exception as e:
             st.error(f"Error setting up WebDriver: {str(e)}")
