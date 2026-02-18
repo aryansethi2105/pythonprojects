@@ -44,48 +44,44 @@ class StockAnalysisScraper:
             chrome_options.add_argument('--disable-blink-features=AutomationControlled')
             chrome_options.add_argument('--window-size=1920,1080')
             
-            # Try different approaches based on environment
+            # Set binary location for Chromium
             system = platform.system()
             
             if system == 'Linux':
-                # For Streamlit Cloud / Linux environments
-                chromium_paths = [
-                    '/usr/bin/chromium-browser',
-                    '/usr/bin/chromium',
-                    '/usr/bin/google-chrome',
-                    '/usr/bin/google-chrome-stable'
-                ]
+                # For Streamlit Cloud - using chromium and chromium-driver packages
+                chrome_options.binary_location = '/usr/bin/chromium'
                 
+                # Try multiple possible chromedriver locations
                 chromedriver_paths = [
-                    '/usr/lib/chromium-browser/chromedriver',
                     '/usr/bin/chromedriver',
-                    '/usr/lib/chromium/chromedriver'
+                    '/usr/lib/chromium/chromedriver',
+                    '/usr/lib/chromium-browser/chromedriver'
                 ]
                 
-                # Set binary location if found
-                for path in chromium_paths:
-                    if os.path.exists(path):
-                        chrome_options.binary_location = path
-                        break
-                
-                # Try to create driver with found paths
                 for driver_path in chromedriver_paths:
                     if os.path.exists(driver_path):
                         try:
                             service = Service(executable_path=driver_path)
                             self.driver = webdriver.Chrome(service=service, options=chrome_options)
                             return True
-                        except:
+                        except Exception as e:
                             continue
                 
-                # Fallback to webdriver_manager
+                # If chromedriver not found in standard locations, try to find it
+                import subprocess
                 try:
-                    from webdriver_manager.chrome import ChromeDriverManager
-                    service = Service(ChromeDriverManager().install())
-                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                    return True
+                    # Try to locate chromedriver using which command
+                    result = subprocess.run(['which', 'chromedriver'], capture_output=True, text=True)
+                    if result.returncode == 0:
+                        driver_path = result.stdout.strip()
+                        service = Service(executable_path=driver_path)
+                        self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                        return True
                 except:
                     pass
+                
+                st.error("ChromeDriver not found. Please ensure chromium-driver is installed.")
+                return False
             
             else:
                 # For local Windows/Mac development
@@ -93,8 +89,6 @@ class StockAnalysisScraper:
                 service = Service(ChromeDriverManager().install())
                 self.driver = webdriver.Chrome(service=service, options=chrome_options)
                 return True
-            
-            return False
             
         except Exception as e:
             st.error(f"Error setting up WebDriver: {str(e)}")
@@ -339,7 +333,7 @@ def main():
                         
                         st.session_state.scraper.close_driver()
                     else:
-                        st.error("Failed to initialize WebDriver. Please check if Chrome is installed.")
+                        st.error("Failed to initialize WebDriver. Please check if Chromium is installed.")
         
         st.info(f"Data will be saved to: {st.session_state.current_csv_filename}")
     
