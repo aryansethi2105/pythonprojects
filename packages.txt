@@ -1,5 +1,2 @@
-google-chrome-stable
-chromium
+chromium-browser
 chromium-chromedriver
-unzip
-wget
