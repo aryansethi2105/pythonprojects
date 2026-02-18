@@ -7,3 +7,4 @@ scipy
 yfinance
 selenium
 webdriver-manager
+openpyxl
