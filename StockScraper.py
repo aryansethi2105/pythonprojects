@@ -14,7 +14,6 @@ import platform
 import subprocess
 import sys
 
-# Page configuration
 st.set_page_config(
     page_title="Stock Analysis Scraper",
     layout="wide"
