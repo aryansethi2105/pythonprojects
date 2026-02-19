@@ -9,6 +9,7 @@ import pandas as pd
 import time
 from datetime import datetime
 import tempfile
+import re  # Make sure to import re at the top
 
 st.set_page_config(
     page_title="Stock Analysis Scraper",
@@ -98,16 +99,25 @@ class StockAnalysisScraper:
             full_text = cell_element.text.strip()
             
             # Try to find and remove the percentage change part
-            # The percentage change is in a span with class "rg"
+            # The percentage change can be in span with class "rg" (green) or "rr" (red)
             try:
-                # Get the percentage change element
-                pct_element = cell_element.find_element(By.CSS_SELECTOR, 'span.rg')
-                pct_text = pct_element.text.strip()
+                # Try to find either rg or rr span
+                pct_element = None
+                for span_class in ['rg', 'rr']:
+                    try:
+                        pct_element = cell_element.find_element(By.CSS_SELECTOR, f'span.{span_class}')
+                        if pct_element:
+                            break
+                    except:
+                        continue
                 
-                # Remove the percentage change from the full text
-                if pct_text in full_text:
-                    clean_value = full_text.replace(pct_text, '').strip()
-                    return clean_value
+                if pct_element:
+                    pct_text = pct_element.text.strip()
+                    
+                    # Remove the percentage change from the full text
+                    if pct_text in full_text:
+                        clean_value = full_text.replace(pct_text, '').strip()
+                        return clean_value
             except:
                 # No percentage change element found, return full text
                 pass
