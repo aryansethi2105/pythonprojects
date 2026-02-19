@@ -34,7 +34,7 @@ class StockAnalysisScraper:
     
     def setup_driver(self):
         """Initialize the Chrome WebDriver with cloud-compatible options"""
-           try:
+        try:
             chrome_options = Options()
             chrome_options.add_argument("--headless=new")
             chrome_options.add_argument("--no-sandbox")
