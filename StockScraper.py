@@ -7,7 +7,6 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 import pandas as pd
 import time
-import os
 from datetime import datetime
 import tempfile
 
