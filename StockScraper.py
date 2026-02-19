@@ -10,9 +10,6 @@ import time
 import os
 from datetime import datetime
 import tempfile
-import platform
-import subprocess
-import sys
 
 st.set_page_config(
     page_title="Stock Analysis Scraper",
