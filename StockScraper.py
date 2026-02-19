@@ -21,19 +21,8 @@ st.set_page_config(
 
 class StockAnalysisScraper:
     def __init__(self):
-        self.driver = None
         self.required_columns = ['symbol', 'company_name', 'current_price', 'market_cap', 
                                  'pe_ratio', 'revenue', 'industry']
-        
-        # Initialize session state for storing scraped data
-        if 'scraped_data' not in st.session_state:
-            st.session_state.scraped_data = []
-        if 'current_csv_filename' not in st.session_state:
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            st.session_state.current_csv_filename = f"stock_data_{timestamp}.csv"
-    
-    def setup_driver(self):
-        """Initialize the Chrome WebDriver with cloud-compatible options"""
         try:
             chrome_options = Options()
             chrome_options.add_argument("--headless=new")
@@ -46,6 +35,14 @@ class StockAnalysisScraper:
         except Exception as e:
             st.error(f"Error setting up WebDriver: {e}")
             raise
+        
+        # Initialize session state for storing scraped data
+        if 'scraped_data' not in st.session_state:
+            st.session_state.scraped_data = []
+        if 'current_csv_filename' not in st.session_state:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            st.session_state.current_csv_filename = f"stock_data_{timestamp}.csv"
+        
     def load_website_first(self):
         """Load the website"""
         try:    
@@ -284,47 +281,44 @@ def main():
                 st.warning("Please enter a stock symbol.")
             else:
                 with st.spinner(f"Scraping data for {symbol}..."):
-                    if st.session_state.scraper.setup_driver():
-                        if st.session_state.scraper.load_website_first():
-                            if st.session_state.scraper.is_valid_symbol(symbol):
-                                stock_data = st.session_state.scraper.scrape_stock_data(symbol)
-                                st.session_state.scraped_data.append(stock_data)
+                    if st.session_state.scraper.load_website_first():
+                        if st.session_state.scraper.is_valid_symbol(symbol):
+                            stock_data = st.session_state.scraper.scrape_stock_data(symbol)
+                            st.session_state.scraped_data.append(stock_data)
+                            
+                            if st.session_state.scraper.save_to_csv():
+                                st.success(f"Successfully scraped data for {symbol}")
                                 
-                                if st.session_state.scraper.save_to_csv():
-                                    st.success(f"Successfully scraped data for {symbol}")
-                                    
-                                    # Display scraped data
-                                    st.subheader("Scraped Data")
-                                    col1, col2 = st.columns(2)
-                                    
-                                    with col1:
-                                        st.write(f"**Company:** {stock_data['company_name']}")
-                                        st.write(f"**Symbol:** {stock_data['symbol']}")
-                                        st.write(f"**Current Price:** {stock_data['current_price']}")
-                                        st.write(f"**Industry:** {stock_data['industry']}")
-                                    
-                                    with col2:
-                                        st.write(f"**Market Cap:** {stock_data['market_cap']}")
-                                        st.write(f"**P/E Ratio:** {stock_data['pe_ratio']}")
-                                        st.write(f"**Revenue:** {stock_data['revenue']}")
-                                    
-                                    # Show additional data
-                                    additional_keys = [k for k in stock_data.keys() 
-                                                     if k not in st.session_state.scraper.required_columns]
-                                    if additional_keys:
-                                        st.subheader("Additional Data")
-                                        for key in additional_keys:
-                                            st.write(f"**{key.replace('_', ' ').title()}:** {stock_data[key]}")
-                                else:
-                                    st.error("Failed to save data to CSV")
+                                # Display scraped data
+                                st.subheader("Scraped Data")
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    st.write(f"**Company:** {stock_data['company_name']}")
+                                    st.write(f"**Symbol:** {stock_data['symbol']}")
+                                    st.write(f"**Current Price:** {stock_data['current_price']}")
+                                    st.write(f"**Industry:** {stock_data['industry']}")
+                                
+                                with col2:
+                                    st.write(f"**Market Cap:** {stock_data['market_cap']}")
+                                    st.write(f"**P/E Ratio:** {stock_data['pe_ratio']}")
+                                    st.write(f"**Revenue:** {stock_data['revenue']}")
+                                
+                                # Show additional data
+                                additional_keys = [k for k in stock_data.keys() 
+                                                 if k not in st.session_state.scraper.required_columns]
+                                if additional_keys:
+                                    st.subheader("Additional Data")
+                                    for key in additional_keys:
+                                        st.write(f"**{key.replace('_', ' ').title()}:** {stock_data[key]}")
                             else:
-                                st.error(f"'{symbol}' is not a valid stock symbol.")
+                                st.error("Failed to save data to CSV")
                         else:
-                            st.error("Failed to load website.")
-                        
-                        st.session_state.scraper.close_driver()
+                            st.error(f"'{symbol}' is not a valid stock symbol.")
                     else:
-                        st.error("Failed to initialize WebDriver. Please check if Chromium is installed.")
+                        st.error("Failed to load website.")
+                    
+                    st.session_state.scraper.close_driver()
         
         st.info(f"Data will be saved to: {st.session_state.current_csv_filename}")
     
