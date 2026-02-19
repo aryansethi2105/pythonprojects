@@ -19,31 +19,6 @@ st.set_page_config(
     layout="wide"
 )
 
-def find_chromedriver():
-    """Find chromedriver in common locations"""
-    possible_paths = [
-        '/usr/bin/chromedriver',
-        '/usr/lib/chromium/chromedriver',
-        '/usr/lib/chromium-browser/chromedriver',
-        '/snap/bin/chromium.chromedriver',
-        '/usr/local/bin/chromedriver'
-    ]
-    
-    # Try common paths
-    for path in possible_paths:
-        if os.path.exists(path):
-            return path
-    
-    # Try using 'which' command
-    try:
-        result = subprocess.run(['which', 'chromedriver'], capture_output=True, text=True)
-        if result.returncode == 0:
-            return result.stdout.strip()
-    except:
-        pass
-    
-    return None
-
 class StockAnalysisScraper:
     def __init__(self):
         self.driver = None
@@ -59,73 +34,18 @@ class StockAnalysisScraper:
     
     def setup_driver(self):
         """Initialize the Chrome WebDriver with cloud-compatible options"""
-        try:
+           try:
             chrome_options = Options()
-            
-            # Essential options for cloud environment
-            chrome_options.add_argument('--headless=new')
-            chrome_options.add_argument('--no-sandbox')
-            chrome_options.add_argument('--disable-dev-shm-usage')
-            chrome_options.add_argument('--disable-gpu')
-            chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-            chrome_options.add_argument('--window-size=1920,1080')
-            chrome_options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
-            
-            # Set binary location for Chromium
-            system = platform.system()
-            
-            if system == 'Linux':
-                # For Streamlit Cloud - try multiple binary locations
-                chromium_paths = [
-                    '/usr/bin/chromium',
-                    '/usr/bin/chromium-browser',
-                    '/snap/bin/chromium',
-                    '/usr/bin/google-chrome',
-                    '/usr/bin/google-chrome-stable'
-                ]
-                
-                binary_found = False
-                for path in chromium_paths:
-                    if os.path.exists(path):
-                        chrome_options.binary_location = path
-                        binary_found = True
-                        break
-                
-                if not binary_found:
-                    st.error("Chromium/Chrome browser not found. Please ensure it's installed.")
-                    return False
-                
-                # Find chromedriver
-                chromedriver_path = find_chromedriver()
-                
-                if chromedriver_path:
-                    try:
-                        service = Service(executable_path=chromedriver_path)
-                        self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                        return True
-                    except Exception as e:
-                        st.error(f"Error creating driver with found chromedriver: {str(e)}")
-                        return False
-                else:
-                    st.error("ChromeDriver not found. Please ensure chromium-driver is installed.")
-                    return False
-            
-            else:
-                # For local Windows/Mac development
-                try:
-                    from webdriver_manager.chrome import ChromeDriverManager
-                    service = Service(ChromeDriverManager().install())
-                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                    return True
-                except:
-                    # Fallback to selenium-manager
-                    self.driver = webdriver.Chrome(options=chrome_options)
-                    return True
-            
+            chrome_options.add_argument("--headless=new")
+            chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.binary_location = "/usr/bin/chromium"
+            self.service = Service("/usr/bin/chromedriver")
+            self.driver = webdriver.Chrome(service=self.service, options=chrome_options)
+            self.wait = WebDriverWait(self.driver, 10)
         except Exception as e:
-            st.error(f"Error setting up WebDriver: {str(e)}")
-            return False
-
+            st.error(f"Error setting up WebDriver: {e}")
+            raise
     def load_website_first(self):
         """Load the website"""
         try:    
@@ -178,6 +98,37 @@ class StockAnalysisScraper:
                    .replace('.', ''))
         return clean_key
 
+    def extract_clean_value(self, cell_element):
+        """Extract only the main value without the percentage change span"""
+        try:
+            # Get the full text of the cell
+            full_text = cell_element.text.strip()
+            
+            # Try to find and remove the percentage change part
+            # The percentage change is in a span with class "rg"
+            try:
+                # Get the percentage change element
+                pct_element = cell_element.find_element(By.CSS_SELECTOR, 'span.rg')
+                pct_text = pct_element.text.strip()
+                
+                # Remove the percentage change from the full text
+                if pct_text in full_text:
+                    clean_value = full_text.replace(pct_text, '').strip()
+                    return clean_value
+            except:
+                # No percentage change element found, return full text
+                pass
+            
+            # If the value itself contains a percentage (like dividend yield)
+            # but we want to keep it, check if it's a legitimate percentage figure
+            if '%' in full_text and not re.search(r'[+-]\d+\.?\d*%', full_text):
+                # This is a yield percentage, keep it
+                return full_text
+            
+            return full_text
+        except Exception as e:
+            return 'N/A'
+
     def extract_financial_metrics(self):
         """Extract specific financial metrics from tables"""
         metrics = {
@@ -195,7 +146,7 @@ class StockAnalysisScraper:
                     cells = row.find_elements(By.CSS_SELECTOR, 'td')
                     if len(cells) >= 2:
                         label = cells[0].text.strip().lower()
-                        value = cells[1].text.strip()
+                        value = self.extract_clean_value(cells[1])
                         
                         if 'market cap' in label and metrics['market_cap'] == 'N/A':
                             metrics['market_cap'] = value
@@ -240,10 +191,15 @@ class StockAnalysisScraper:
             except:
                 pass
             
-            # Extract current price
+            # Extract current price - need to handle this separately based on HTML structure
             try:
-                price = self.driver.find_element(By.XPATH, '//*[@id="main"]/div[1]/div[2]/div[1]/div[1]')
-                stock_data['current_price'] = price.text.strip()
+                # Try to find the price element - adjust selector based on actual HTML
+                price_element = self.driver.find_element(By.XPATH, '//*[@id="main"]/div[1]/div[2]/div[1]/div[1]')
+                price_text = price_element.text.strip()
+                
+                # Extract just the price (first part before any space or change)
+                # Based on the HTML structure, the price might be separate from changes
+                stock_data['current_price'] = price_text.split()[0] if price_text else 'N/A'
             except:
                 pass
             
@@ -254,7 +210,7 @@ class StockAnalysisScraper:
             financial_metrics = self.extract_financial_metrics()
             stock_data.update(financial_metrics)
             
-            # Extract additional table data
+            # Extract additional table data (excluding percentage changes)
             try:
                 tables = self.driver.find_elements(By.CSS_SELECTOR, 'table')
                 
@@ -264,12 +220,15 @@ class StockAnalysisScraper:
                         cells = row.find_elements(By.CSS_SELECTOR, 'td') 
                         if len(cells) >= 2:
                             label = cells[0].text.strip()
-                            value = cells[1].text.strip()
+                            value = self.extract_clean_value(cells[1])
                             
                             if label and value:
                                 clean_key = self.clean_column_name(label)
                                 if clean_key not in self.required_columns:
-                                    stock_data[clean_key] = value
+                                    # Skip if the key suggests it's a change metric
+                                    change_keywords = ['change', 'chg', 'gain', 'loss', 'increase', 'decrease']
+                                    if not any(keyword in clean_key for keyword in change_keywords):
+                                        stock_data[clean_key] = value
             except:
                 pass
             
