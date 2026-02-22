@@ -41,7 +41,7 @@ with tab1:
     
     st.write("""
     The **Black-Scholes model**, developed by Fischer Black and Myron Scholes in 1973, is a groundbreaking 
-    mathematical model for pricing European-style options. It revolutionized the field of quantitative finance 
+    mathematical model for pricing European-style options. It revolutionised the field of quantitative finance 
     and earned Scholes and Robert Merton the 1997 Nobel Prize in Economics.
     """)
     
