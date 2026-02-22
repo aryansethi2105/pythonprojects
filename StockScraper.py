@@ -33,7 +33,7 @@ class StockAnalysisScraper:
             st.error(f"Error setting up WebDriver: {e}")
             raise
         
-        # Initialize session state for storing scraped data
+        # Initialise session state for storing scraped data
         if 'scraped_data' not in st.session_state:
             st.session_state.scraped_data = []
         if 'current_csv_filename' not in st.session_state:
@@ -78,7 +78,7 @@ class StockAnalysisScraper:
             return False
 
     def clean_column_name(self, key):
-        """Clean and standardize column names"""
+        """Clean and standardise column names"""
         clean_key = (key.lower()
                    .replace(' ', '_')
                    .replace('-', '_')
@@ -261,7 +261,7 @@ class StockAnalysisScraper:
 def main():
     st.title("Stock Analysis Scraper")
     
-    # Initialize scraper in session state
+    # Initialise scraper in session state
     if 'scraper' not in st.session_state:
         st.session_state.scraper = StockAnalysisScraper()
     
