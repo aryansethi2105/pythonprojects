@@ -7,21 +7,21 @@ symbols = ['!', '#', '$', '%', '&', '(', ')', '*', '+']
 
 st.title("Password Generator", text_alignment = "center")
 
-if 'user_input' not in st.session_state:
+if "user_input" not in st.session_state:
     st.session_state.user_input = ""
   
 def clear_input():
     st.session_state.user_input = ""
 
 with st.form(key = "password_generator"):
-  nr_letters = st.number_input(label = "**Enter the number of letters you would like to include in your password:**", min_value = 1)
-  nr_numbers = st.number_input(label = "**Enter the number of numbers you would like to include in your password:**", min_value = 1)
-  nr_symbols = st.number_input(label = "**Enter the number of symbols you would like to include in your password:**", min_value = 1)
+  nr_letters = st.number_input(label = "**Enter the number of letters you would like to include in your password:**", min_value = 1, key = "user_input")
+  nr_numbers = st.number_input(label = "**Enter the number of numbers you would like to include in your password:**", min_value = 1, key = "user_input")
+  nr_symbols = st.number_input(label = "**Enter the number of symbols you would like to include in your password:**", min_value = 1, key = "user_input")
 
   col1, col2 = st.columns(2)
   
   with col1:
-    submit = st.form_submit_button(label = "Generate Password", type = "primary", use_container_width = True)
+    submit = st.form_submit_button(label = "Generate Password", type = "primary")
   with col2:
     st.button("Clear", on_click = clear_input)
 
