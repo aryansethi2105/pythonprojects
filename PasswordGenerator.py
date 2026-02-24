@@ -8,8 +8,8 @@ with st.form(key = "password_generator"):
   numbers = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
   symbols = ['!', '#', '$', '%', '&', '(', ')', '*', '+']
   nr_letters = st.number_input(label = "**Enter the number of letters you would like to include in your password:**", min_value = 1)
-  nr_numbers = st.number_input(label = "Enter the number of numbers you would like to include in your password:", min_value = 1)
-  nr_symbols = st.number_input(label = "Enter the number of symbols you would like to include in your password:", min_value = 1)
+  nr_numbers = st.number_input(label = "**Enter the number of numbers you would like to include in your password:**", min_value = 1)
+  nr_symbols = st.number_input(label = "**Enter the number of symbols you would like to include in your password:**", min_value = 1)
   submit = st.form_submit_button(label = "Generate Password", type = "primary", use_container_width = True)
 
   password_list = []
