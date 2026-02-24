@@ -30,5 +30,5 @@ with st.form(key = "password_generator", clear_on_submit = True):
   for character in password_list:
       password_hard += character
 
-  st.write(password_hard)
+st.write(password_hard)
   
