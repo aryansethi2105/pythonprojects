@@ -7,7 +7,7 @@ symbols = ['!', '#', '$', '%', '&', '(', ')', '*', '+']
 
 st.title("Password Generator", text_alignment = "center")
 
-# Initialize session state for form values
+# Initialise session state for form values
 if "nr_letters" not in st.session_state:
     st.session_state.nr_letters = 1
 if "nr_numbers" not in st.session_state:
@@ -30,12 +30,12 @@ with st.form(key="password_generator"):
 
     col1, col2 = st.columns(2)
     with col1:
-        submit = st.form_submit_button(label = "Generate Password", type = "primary", use_container_width = True)
+        generate_password = st.form_submit_button(label = "Generate Password", type = "primary", use_container_width = True)
     with col2:
         clear = st.form_submit_button(label = "Clear", on_click = clear_input, use_container_width = True)
 
-    # Generate password only when submit is clicked
-    if submit:
+    # Generate password only when generate_password is clicked
+    if generate_password:
         password_list = []
         
         for character in range(0, nr_letters):
@@ -49,11 +49,11 @@ with st.form(key="password_generator"):
         
         random.shuffle(password_list)
         
-        password_hard = ""
+        password = ""
         for character in password_list:
-            password_hard += character
+            password += character
         
-        st.session_state.password_generated = password_hard
+        st.session_state.password_generated = password
 
 # Display password
 if st.session_state.password_generated:
