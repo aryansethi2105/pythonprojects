@@ -31,5 +31,5 @@ with st.form(key = "password_generator", clear_on_submit = True):
       password_hard += character
   
 if submit:
-  st.write("**Your Generated Password is:**"
+  st.write("**Your Generated Password is:**")
   st.code(password_hard)
