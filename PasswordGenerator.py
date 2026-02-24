@@ -10,7 +10,7 @@ with st.form(key = "password_generator", clear_on_submit = True):
   nr_letters = st.number_input(label = "Enter the number of letters you would like to include in your password", min_value = 1)
   nr_numbers = st.number_input(label = "Enter the number of numbers you would like to include in your password", min_value = 1)
   nr_symbols = st.number_input(label = "Enter the number of symbols you would like to include in your password", min_value = 1)
-  st.form_submit_button(label = "Generate Password")
+  submit = st.form_submit_button(label = "Generate Password")
 
   password_list = []
   
@@ -29,6 +29,7 @@ with st.form(key = "password_generator", clear_on_submit = True):
   
   for character in password_list:
       password_hard += character
-
-st.write(password_hard)
+  
+  if submit:
+    st.write(password_hard)
   
