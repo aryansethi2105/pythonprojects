@@ -31,6 +31,5 @@ with st.form(key = "password_generator", clear_on_submit = True):
   for character in password_list:
       password_hard += character
   
-  if submit:
-    st.write(password_hard)
-    copy_button(password_hard, tooltip="Copy this text", copied_label="Copied!", icon="st")
+if submit:
+  st.code(password_hard)
