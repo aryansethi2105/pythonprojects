@@ -1,8 +1,7 @@
 import streamlit as st
 import random
 
-st.title("Password Generator")
-st.header("Password Generator", text_alignment = "center")
+st.title("Password Generator", text_alignment = "center")
 
 with st.form(key = "password_generator", clear_on_submit = True):
   letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z']
