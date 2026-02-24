@@ -30,9 +30,9 @@ with st.form(key="password_generator"):
 
     col1, col2 = st.columns(2)
     with col1:
-        submit = st.form_submit_button(label = "Generate Password", type = "primary")
+        submit = st.form_submit_button(label = "Generate Password", type = "primary", use_container_width = True)
     with col2:
-        clear = st.form_submit_button(label = "Clear", on_click = clear_input)
+        clear = st.form_submit_button(label = "Clear", on_click = clear_input, use_container_width = True)
 
     # Generate password only when submit is clicked
     if submit:
