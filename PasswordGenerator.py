@@ -1,4 +1,5 @@
 import streamlit as st
+from st_copy import copy_button
 import random
 
 st.title("Password Generator", text_alignment = "center")
@@ -32,4 +33,4 @@ with st.form(key = "password_generator", clear_on_submit = True):
   
   if submit:
     st.write(password_hard)
-  
+    copy_button(password_hard, tooltip="Copy this text", copied_label="Copied!", icon="st")
