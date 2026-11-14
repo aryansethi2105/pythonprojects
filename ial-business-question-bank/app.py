@@ -282,17 +282,35 @@ elif not all(t in valid_ids for t in st.session_state["topic_ms"]):
 
 
 def _on_topics_change():
-    """Keep 'All Topics' and specific topics mutually exclusive."""
+    """Keep 'All Topics' mutually exclusive with specific syllabus topics.
+
+    'Quantitative Skills' is an independent toggle and may be combined with
+    either 'All Topics' or specific topics, so it is deliberately excluded from
+    the exclusivity handling below.
+    """
     sel = st.session_state["topic_ms"]
     if not sel:
         st.session_state["topic_ms"] = ["ALL"]
-    elif "ALL" in sel:
-        prev = st.session_state.get("topic_ms_prev", ["ALL"])
+        st.session_state["topic_ms_prev"] = ["ALL"]
+        return
+
+    prev = st.session_state.get("topic_ms_prev", ["ALL"])
+    has_all = "ALL" in sel
+    has_qs = "QS" in sel
+    specifics = [x for x in sel if x not in ("ALL", "QS")]
+
+    if has_all and specifics:
+        # Both "All Topics" and specific topics are selected at once: drop the
+        # one that was just added (they are mutually exclusive).
         if "ALL" in prev:
-            st.session_state["topic_ms"] = [x for x in sel if x != "ALL"]
+            new = specifics + (["QS"] if has_qs else [])
         else:
-            st.session_state["topic_ms"] = ["ALL"]
-    st.session_state["topic_ms_prev"] = st.session_state["topic_ms"]
+            new = ["ALL"] + (["QS"] if has_qs else [])
+    else:
+        new = sel
+
+    st.session_state["topic_ms"] = new
+    st.session_state["topic_ms_prev"] = new
 
 
 st.sidebar.multiselect(
@@ -304,8 +322,11 @@ st.sidebar.multiselect(
 )
 
 topics = st.session_state["topic_ms"]
+show_all = "ALL" in topics
 selected_topics = [t for t in topics if t not in ("ALL", "QS")]
-has_qs = "QS" in topics
+# 'Quantitative Skills' narrows to quantitative questions; it is redundant when
+# 'All Topics' is selected, which already means "every question".
+has_qs = "QS" in topics and not show_all
 
 # --- Quantitative Skills: only revealed when 'Quantitative Skills' is chosen --
 selected_qs = []
@@ -329,7 +350,9 @@ if has_qs:
     st.sidebar.caption("Leave empty to show any question that tests a quantitative skill.")
     selected_qs = st.session_state.get("qs_ms", [])
 
-st.sidebar.caption("Pick a Unit and one or more Topics to see matching questions.")
+st.sidebar.caption(
+    "Pick a Unit and Topics to filter questions. 'All Topics' shows every question."
+)
 
 
 def build_filter():
@@ -337,6 +360,10 @@ def build_filter():
     if unit != "All":
         conds.append("q.unit = ?")
         params.append(unit)
+    if show_all:
+        # 'All Topics' => no topic restriction at all: every question for the
+        # selected unit(s), including quantitative-skills and untagged questions.
+        return (" AND ".join(conds) if conds else "1=1"), params
     if selected_topics:
         ph = ",".join("?" * len(selected_topics))
         conds.append(
@@ -392,16 +419,18 @@ with tab_browse:
     else:
         st.caption("Syllabus PDF not found.")
 
-    no_topic_selected = (not selected_topics and not has_qs)
+    no_topic_selected = (not selected_topics and not has_qs and not show_all)
 
-    with st.expander("How to use this app", expanded=no_topic_selected):
+    with st.expander("How to use this app", expanded=False):
         st.markdown(
             """
             **Welcome.** This question bank contains past-paper questions from the Pearson IAL
             Business Syllabus.
 
             1. Choose a **Unit** and one or more **Topics** in the sidebar to view questions.
-               Pick **Quantitative Skills** to see questions that test quantitative skills.
+               Pick **All Topics** to see every question in the bank (quantitative-skills
+               questions included). Pick **Quantitative Skills** to narrow to questions that
+               test a quantitative skill.
             2. Each result shows the question, the **case study (Extract)** and the **mark scheme**.
             3. Open a question's *case study* or *mark scheme* expander to see the original page.
 
@@ -409,7 +438,7 @@ with tab_browse:
             """
         )
 
-    sig = (unit, tuple(sorted(selected_topics)))
+    sig = (unit, tuple(sorted(selected_topics)), show_all, has_qs, tuple(sorted(selected_qs)))
     if st.session_state.get("filt_sig") != sig:
         st.session_state["filt_sig"] = sig
         st.session_state["shown"] = PAGE_SIZE
