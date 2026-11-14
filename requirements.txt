@@ -1,0 +1,13 @@
+streamlit
+selenium
+pandas
+webdriver-manager
+openpyxl
+setuptools
+numpy
+matplotlib
+plotly
+scipy
+yfinance
+pdfplumber
+pymupdf
