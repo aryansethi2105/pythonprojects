@@ -2,8 +2,11 @@
 IAL Business question bank — Streamlit app.
 
 Student view : browse/filter questions (case study + mark scheme as page images)
-               and download papers.
-Admin view   : additionally tag questions, add papers, and delete papers.
+               and download papers — question access and paper access are released
+               independently by an admin, and questions can be narrowed to
+               individual syllabus sub-topics.
+Admin view   : additionally choose which units are released, tag questions,
+               add papers, and delete papers.
 
 Run from the project root:
     .venv/bin/streamlit run app.py
@@ -35,6 +38,16 @@ UNIT_NAMES = {
     3: "Unit 3: Business decisions and strategy",
     4: "Unit 4: Global business",
 }
+ALL_UNITS = tuple(sorted(UNIT_NAMES))
+
+# Students only see units that have been released. The setting lives in the
+# `settings` table, so it travels with the DB (and therefore with publish.sh).
+# Until an admin saves a release, only Unit 1 is visible.
+DEFAULT_RELEASED_UNITS = [1]
+RELEASED_UNITS_KEY = "released_units"
+# Papers are released separately from the question bank, so an admin can hand out
+# a past paper before (or without) opening its questions.
+RELEASED_PAPERS_KEY = "released_paper_units"
 
 
 def unit_label(u):
@@ -76,6 +89,110 @@ def get_conn() -> sqlite3.Connection:
 
 def resolve(rel_path: str) -> Path:
     return ROOT / rel_path
+
+
+# --- unit release settings -------------------------------------------------
+
+def _ensure_release_schema(conn: sqlite3.Connection) -> None:
+    """Bring a DB that predates the release feature up to date.
+
+    Adds the `settings` table and the per-sub-topic `topics.released` flag.
+    Both are no-ops once present.
+    """
+    exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='settings'"
+    ).fetchone()
+    if exists is None:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+        )
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(topics)")}
+    if "released" not in cols:
+        conn.execute("ALTER TABLE topics ADD COLUMN released INTEGER NOT NULL DEFAULT 1")
+    conn.commit()
+
+
+def get_released_units(conn: sqlite3.Connection) -> list[int]:
+    """Units students may currently see, ascending.
+
+    Defaults to DEFAULT_RELEASED_UNITS (Unit 1) when nothing has been saved yet,
+    so a fresh DB is never accidentally wide open.
+    """
+    _ensure_release_schema(conn)
+    row = conn.execute(
+        "SELECT value FROM settings WHERE key=?", (RELEASED_UNITS_KEY,)
+    ).fetchone()
+    if row is None:
+        return list(DEFAULT_RELEASED_UNITS)
+    try:
+        saved = {int(u) for u in json.loads(row["value"])}
+    except (ValueError, TypeError):
+        return list(DEFAULT_RELEASED_UNITS)
+    return sorted(u for u in saved if u in ALL_UNITS)
+
+
+def set_released_units(conn: sqlite3.Connection, units) -> None:
+    """Persist which units students may see."""
+    _ensure_release_schema(conn)
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (RELEASED_UNITS_KEY, json.dumps(sorted(set(units)))),
+    )
+    conn.commit()
+
+
+def set_released_paper_units(conn: sqlite3.Connection, units) -> None:
+    """Persist which units' papers students may download."""
+    _ensure_release_schema(conn)
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (RELEASED_PAPERS_KEY, json.dumps(sorted(set(units)))),
+    )
+    conn.commit()
+
+
+def get_released_paper_units(conn: sqlite3.Connection) -> list[int]:
+    """Units whose exam papers students may download.
+
+    Independent of the question-bank release. Until an admin saves an explicit
+    choice, this follows the released units — the behaviour before the two were
+    split — so an existing DB keeps working unchanged.
+    """
+    _ensure_release_schema(conn)
+    row = conn.execute(
+        "SELECT value FROM settings WHERE key=?", (RELEASED_PAPERS_KEY,)
+    ).fetchone()
+    if row is None:
+        return get_released_units(conn)
+    try:
+        saved = {int(u) for u in json.loads(row["value"])}
+    except (ValueError, TypeError):
+        return get_released_units(conn)
+    return sorted(u for u in saved if u in ALL_UNITS)
+
+
+def unit_scope(column: str, units) -> tuple[str, list]:
+    """A `column IN (...)` SQL fragment (plus params) restricting to `units`.
+
+    Returns a false condition when nothing is released, so an empty release set
+    can never fall back to "show everything".
+    """
+    units = list(units)
+    if not units:
+        return "0=1", []
+    return f"{column} IN ({','.join('?' * len(units))})", units
+
+
+def sync_widget(key: str, options, default) -> None:
+    """Keep a widget's saved value inside a list that may have shrunk.
+
+    Streamlit errors if a widget key holds a value that is no longer one of its
+    options, which happens when an admin changes the released units mid-session.
+    """
+    if st.session_state.get(key) not in options:
+        st.session_state[key] = default
 
 
 def admin_password() -> str:
@@ -241,6 +358,11 @@ else:
 if st.sidebar.button("Log out", key="logout_btn"):
     st.session_state["auth_state"] = None
     st.session_state.pop("view_mode", None)
+    # Drop the release-form widget state so a re-login re-reads the DB instead
+    # of showing stale checkboxes from the previous admin session.
+    for k in list(st.session_state):
+        if k.startswith(("rel_unit_", "rel_topic_", "rel_papers_")) or k == "rel_edit_unit":
+            st.session_state.pop(k, None)
     st.rerun()
 
 st.sidebar.divider()
@@ -248,22 +370,40 @@ st.sidebar.header("Filters")
 
 conn = get_conn()
 
+# Unit visibility. Students only ever see released units; an admin working in
+# the Admin view sees every unit, so they can tag and proofread a unit before
+# releasing it. Switching the admin to the Student view previews the release.
+released_units = get_released_units(conn)
+visible_units = list(ALL_UNITS) if is_admin else released_units
+
+# Paper downloads have their own release list, independent of the question bank.
+released_paper_units = get_released_paper_units(conn)
+visible_paper_units = list(ALL_UNITS) if is_admin else released_paper_units
+
+unit_options = ["All"] + visible_units
+sync_widget("unit_sel", unit_options, "All")
 unit = st.sidebar.selectbox(
     "Unit",
-    ["All", 1, 2, 3, 4],
+    unit_options,
     format_func=lambda u: "All Units" if u == "All" else unit_label(u),
     key="unit_sel",
 )
 
+topic_scope_sql, topic_scope_params = unit_scope("unit", visible_units)
+# Admins working in the Admin view see every sub-topic (they need to filter and
+# proofread before releasing); everyone else only sees released ones.
+topic_release_sql = "1=1" if is_admin else "released = 1"
 if unit == "All":
     topic_rows = conn.execute(
         "SELECT topic_id, unit, topic_code, topic_name FROM topics "
-        "WHERE category='syllabus' ORDER BY topic_code"
+        f"WHERE category='syllabus' AND {topic_release_sql} AND {topic_scope_sql} "
+        "ORDER BY topic_code",
+        topic_scope_params,
     ).fetchall()
 else:
     topic_rows = conn.execute(
         "SELECT topic_id, unit, topic_code, topic_name FROM topics "
-        "WHERE category='syllabus' AND unit=? ORDER BY topic_code",
+        f"WHERE category='syllabus' AND {topic_release_sql} AND unit=? ORDER BY topic_code",
         (unit,),
     ).fetchall()
 
@@ -356,14 +496,29 @@ st.sidebar.caption(
 
 
 def build_filter():
-    conds, params = [], []
+    # Always scope to visible units first: a student can never query their way
+    # into an unreleased unit, even with a stale or hand-edited filter value.
+    q_scope_sql, q_scope_params = unit_scope("q.unit", visible_units)
+    conds, params = [q_scope_sql], list(q_scope_params)
     if unit != "All":
         conds.append("q.unit = ?")
         params.append(unit)
+    if not is_admin:
+        # Sub-topic release. While a unit still holds back some of its sub-topics,
+        # only questions tagged to a released sub-topic are shown. An untagged
+        # question cannot be attributed to released material, so it stays hidden
+        # until the whole unit is released.
+        conds.append(
+            "(NOT EXISTS (SELECT 1 FROM topics t WHERE t.unit = q.unit "
+            "AND t.category = 'syllabus' AND t.released = 0) "
+            "OR EXISTS (SELECT 1 FROM question_topics qt JOIN topics t USING(topic_id) "
+            "WHERE qt.question_id = q.question_id AND t.category = 'syllabus' "
+            "AND t.released = 1))"
+        )
     if show_all:
         # 'All Topics' => no topic restriction at all: every question for the
         # selected unit(s), including quantitative-skills and untagged questions.
-        return (" AND ".join(conds) if conds else "1=1"), params
+        return " AND ".join(conds), params
     if selected_topics:
         ph = ",".join("?" * len(selected_topics))
         conds.append(
@@ -393,14 +548,15 @@ def build_filter():
 
 tab_labels = ["Browse Questions", "Download Papers"]
 if is_admin:
-    tab_labels += ["Tag Questions", "Add Paper", "Delete Paper"]
+    tab_labels += ["Release Units", "Tag Questions", "Add Paper", "Delete Paper"]
 
 tabs = st.tabs(tab_labels)
 tab_browse = tabs[0]
 tab_download = tabs[1]
-tab_tag = tabs[2] if is_admin else None
-tab_add = tabs[3] if is_admin else None
-tab_delete = tabs[4] if is_admin else None
+tab_release = tabs[2] if is_admin else None
+tab_tag = tabs[3] if is_admin else None
+tab_add = tabs[4] if is_admin else None
+tab_delete = tabs[5] if is_admin else None
 
 # ===========================================================================
 # Tab 1 — filtered questions
@@ -448,6 +604,10 @@ with tab_browse:
         st.info("Select one or more Topics in the sidebar to view questions.")
         total = 0
         rows = []
+    elif not visible_units:
+        st.info("No units are available yet — please check back later.")
+        total = 0
+        rows = []
     else:
         where, params = build_filter()
         base_from = "FROM questions q JOIN papers p USING(paper_id)"
@@ -481,11 +641,14 @@ with tab_browse:
         )
 
         tags = conn.execute(
-            "SELECT t.topic_code, t.topic_name, t.category FROM question_topics qt "
+            "SELECT t.topic_code, t.topic_name, t.category, t.released FROM question_topics qt "
             "JOIN topics t USING(topic_id) WHERE qt.question_id=? ORDER BY t.topic_code",
             (q["question_id"],),
         ).fetchall()
-        syl_tags = [t for t in tags if t["category"] == "syllabus"]
+        # Never surface the name of a sub-topic the student is not meant to see.
+        syl_tags = [
+            t for t in tags if t["category"] == "syllabus" and (is_admin or t["released"])
+        ]
         qs_tags = [t for t in tags if t["category"] == "quantitative"]
         if syl_tags:
             tag_html = " &nbsp; ".join(
@@ -560,54 +723,70 @@ with tab_browse:
 with tab_download:
     st.title("Download Papers")
 
-    d_unit = st.selectbox("Unit", [1, 2, 3, 4], format_func=unit_label, key="dl_unit")
-    d_sessions = [
-        r["session_label"]
-        for r in conn.execute(
-            "SELECT DISTINCT session_label, MIN(exam_year) y, MIN(exam_month) m "
-            "FROM papers WHERE unit=? GROUP BY session_label ORDER BY y, m",
-            (d_unit,),
+    if not visible_paper_units:
+        st.info("No exam papers have been released yet — please check back later.")
+    else:
+        sync_widget("dl_unit", visible_paper_units, visible_paper_units[0])
+        d_unit = st.selectbox(
+            "Unit", visible_paper_units, format_func=unit_label, key="dl_unit"
         )
-    ]
-    d_session = st.selectbox("Session", d_sessions, key="dl_session")
-    d_papers = conn.execute(
-        "SELECT * FROM papers WHERE unit=? AND session_label=? ORDER BY paper_code",
-        (d_unit, d_session),
-    ).fetchall()
-    d_paper = st.selectbox("Paper", [p["paper_code"] for p in d_papers], key="dl_paper")
-    paper_dl = next(p for p in d_papers if p["paper_code"] == d_paper)
-
-    st.markdown(
-        f"### {paper_dl['session_label']} · {unit_label(paper_dl['unit'])} · {paper_dl['paper_code']}"
-    )
-    st.caption(
-        f"{paper_dl['unit_title'] or ''} · {paper_dl['total_marks']} marks · "
-        f"{Path(paper_dl['paper_pdf_path']).name}"
-    )
-
-    col_qp, col_ms = st.columns(2)
-    with col_qp:
-        if resolve(paper_dl["paper_pdf_path"]).exists():
-            st.download_button(
-                "Download question paper",
-                data=resolve(paper_dl["paper_pdf_path"]).read_bytes(),
-                file_name=Path(paper_dl["paper_pdf_path"]).name,
-                mime="application/pdf",
-                key=f"dlp-qp-{paper_dl['paper_id']}",
+        d_sessions = [
+            r["session_label"]
+            for r in conn.execute(
+                "SELECT DISTINCT session_label, MIN(exam_year) y, MIN(exam_month) m "
+                "FROM papers WHERE unit=? GROUP BY session_label ORDER BY y, m",
+                (d_unit,),
             )
+        ]
+        if not d_sessions:
+            st.info("No papers are available for this unit yet.")
         else:
-            st.error("Question paper PDF is missing on disk.")
-    with col_ms:
-        if resolve(paper_dl["mark_scheme_pdf_path"]).exists():
-            st.download_button(
-                "Download mark scheme",
-                data=resolve(paper_dl["mark_scheme_pdf_path"]).read_bytes(),
-                file_name=Path(paper_dl["mark_scheme_pdf_path"]).name,
-                mime="application/pdf",
-                key=f"dlp-ms-{paper_dl['paper_id']}",
-            )
-        else:
-            st.warning("Mark scheme PDF is not available for this paper.")
+            sync_widget("dl_session", d_sessions, d_sessions[0])
+            d_session = st.selectbox("Session", d_sessions, key="dl_session")
+            d_papers = conn.execute(
+                "SELECT * FROM papers WHERE unit=? AND session_label=? ORDER BY paper_code",
+                (d_unit, d_session),
+            ).fetchall()
+            d_codes = [p["paper_code"] for p in d_papers]
+            if not d_codes:
+                st.info("No papers are available for this session yet.")
+            else:
+                sync_widget("dl_paper", d_codes, d_codes[0])
+                d_paper = st.selectbox("Paper", d_codes, key="dl_paper")
+                paper_dl = next(p for p in d_papers if p["paper_code"] == d_paper)
+
+                st.markdown(
+                    f"### {paper_dl['session_label']} · {unit_label(paper_dl['unit'])} "
+                    f"· {paper_dl['paper_code']}"
+                )
+                st.caption(
+                    f"{paper_dl['unit_title'] or ''} · {paper_dl['total_marks']} marks · "
+                    f"{Path(paper_dl['paper_pdf_path']).name}"
+                )
+
+                col_qp, col_ms = st.columns(2)
+                with col_qp:
+                    if resolve(paper_dl["paper_pdf_path"]).exists():
+                        st.download_button(
+                            "Download question paper",
+                            data=resolve(paper_dl["paper_pdf_path"]).read_bytes(),
+                            file_name=Path(paper_dl["paper_pdf_path"]).name,
+                            mime="application/pdf",
+                            key=f"dlp-qp-{paper_dl['paper_id']}",
+                        )
+                    else:
+                        st.error("Question paper PDF is missing on disk.")
+                with col_ms:
+                    if resolve(paper_dl["mark_scheme_pdf_path"]).exists():
+                        st.download_button(
+                            "Download mark scheme",
+                            data=resolve(paper_dl["mark_scheme_pdf_path"]).read_bytes(),
+                            file_name=Path(paper_dl["mark_scheme_pdf_path"]).name,
+                            mime="application/pdf",
+                            key=f"dlp-ms-{paper_dl['paper_id']}",
+                        )
+                    else:
+                        st.warning("Mark scheme PDF is not available for this paper.")
 
 # ---------------------------------------------------------------------------
 # Admin-only tabs
@@ -615,7 +794,175 @@ with tab_download:
 
 if is_admin:
     # =========================================================================
-    # Tab 3 — tag questions to sub-topics
+    # Tab 3 — release units to students
+    # =========================================================================
+    with tab_release:
+        flash = st.session_state.pop("_release_flash", None)
+        if flash:
+            st.success(flash)
+
+        st.title("Release Units, Sub-topics and Papers")
+        st.caption(
+            "Two independent releases: the **question bank** (browse view) and the **exam "
+            "papers** (download view). Release papers before their questions if you want "
+            "students to sit a paper first; release questions without papers if you only "
+            "want targeted practice. Within a released unit you can also release sub-topics "
+            "individually."
+        )
+
+        released_now = set(get_released_units(conn))
+        papers_now = set(get_released_paper_units(conn))
+
+        # Per-unit inventory, so it is clear what a release would expose.
+        stats = {}
+        for u in ALL_UNITS:
+            stats[u] = {
+                "topics": conn.execute(
+                    "SELECT COUNT(*) FROM topics WHERE category='syllabus' AND unit=?", (u,)
+                ).fetchone()[0],
+                "topics_released": conn.execute(
+                    "SELECT COUNT(*) FROM topics WHERE category='syllabus' AND unit=? "
+                    "AND released=1",
+                    (u,),
+                ).fetchone()[0],
+                "papers": conn.execute(
+                    "SELECT COUNT(*) FROM papers WHERE unit=?", (u,)
+                ).fetchone()[0],
+                "tagged": conn.execute(
+                    "SELECT COUNT(*) FROM questions q WHERE q.unit=? AND EXISTS ("
+                    "SELECT 1 FROM question_topics qt JOIN topics t USING(topic_id) "
+                    "WHERE qt.question_id=q.question_id AND t.category='syllabus')",
+                    (u,),
+                ).fetchone()[0],
+            }
+
+        st.markdown(
+            "**Question bank:** "
+            + (", ".join(unit_label(u) for u in sorted(released_now)) or "*nothing released*")
+            + "  \n**Exam papers:** "
+            + (", ".join(unit_label(u) for u in sorted(papers_now)) or "*nothing released*")
+        )
+
+        st.markdown("**Units and papers**")
+        h_unit, h_q, h_p, h_inv = st.columns([4, 1, 1, 2])
+        h_unit.markdown("**Unit**")
+        h_q.markdown("**Questions**")
+        h_p.markdown("**Papers**")
+        h_inv.markdown("**Inventory**")
+        for u in ALL_UNITS:
+            c_name, c_q, c_p, c_inv = st.columns([4, 1, 1, 2])
+            c_name.markdown(unit_label(u))
+            with c_q:
+                qkey = f"rel_unit_{u}"
+                if qkey not in st.session_state:
+                    st.session_state[qkey] = u in released_now
+                st.checkbox("Questions", key=qkey, label_visibility="collapsed")
+            with c_p:
+                pkey = f"rel_papers_{u}"
+                if pkey not in st.session_state:
+                    st.session_state[pkey] = u in papers_now
+                st.checkbox("Papers", key=pkey, label_visibility="collapsed")
+            c_inv.caption(
+                f"{stats[u]['topics_released']}/{stats[u]['topics']} sub-topics · "
+                f"{stats[u]['papers']} papers · {stats[u]['tagged']} tagged"
+            )
+
+        for u in sorted(released_now):
+            if stats[u]["topics_released"] == 0:
+                st.warning(
+                    f"{unit_label(u)} is released for questions but none of its sub-topics "
+                    "are, so no questions from it will appear."
+                )
+
+        st.divider()
+        st.markdown("**Sub-topics to release**")
+        st.caption(
+            "Sub-topics control the **question bank only** — they never affect paper "
+            "downloads. They reach students only when their unit's *Questions* box is ticked. "
+            "In a unit where some sub-topics are held back, students only see questions "
+            "tagged to a released sub-topic; untagged questions stay hidden until the whole "
+            "unit is out."
+        )
+
+        edit_unit = st.selectbox(
+            "Unit to manage",
+            ALL_UNITS,
+            format_func=unit_label,
+            key="rel_edit_unit",
+        )
+        unit_topics = conn.execute(
+            "SELECT topic_id, topic_code, topic_name, released FROM topics "
+            "WHERE category='syllabus' AND unit=? ORDER BY topic_code",
+            (edit_unit,),
+        ).fetchall()
+
+        b_all, b_none, _spacer = st.columns([1, 1, 4])
+        if b_all.button("Select all", key=f"rel_all_{edit_unit}"):
+            for t in unit_topics:
+                st.session_state[f"rel_topic_{t['topic_id']}"] = True
+            st.rerun()
+        if b_none.button("Clear all", key=f"rel_none_{edit_unit}"):
+            for t in unit_topics:
+                st.session_state[f"rel_topic_{t['topic_id']}"] = False
+            st.rerun()
+
+        topic_cols = st.columns(2)
+        for i, t in enumerate(unit_topics):
+            with topic_cols[i % 2]:
+                tkey = f"rel_topic_{t['topic_id']}"
+                if tkey not in st.session_state:
+                    st.session_state[tkey] = bool(t["released"])
+                st.checkbox(f"{t['topic_code']} — {t['topic_name']}", key=tkey)
+        n_on = sum(
+            1
+            for t in unit_topics
+            if st.session_state.get(f"rel_topic_{t['topic_id']}", t["released"])
+        )
+        st.caption(
+            f"{n_on} of {len(unit_topics)} sub-topics released in {unit_label(edit_unit)}."
+        )
+
+        if st.button("Save release settings", type="primary"):
+            new_units = {u for u in ALL_UNITS if st.session_state.get(f"rel_unit_{u}")}
+            new_papers = {u for u in ALL_UNITS if st.session_state.get(f"rel_papers_{u}")}
+            set_released_units(conn, new_units)
+            set_released_paper_units(conn, new_papers)
+            changed = 0
+            for t in conn.execute(
+                "SELECT topic_id, released FROM topics WHERE category='syllabus'"
+            ).fetchall():
+                want = (
+                    1
+                    if st.session_state.get(f"rel_topic_{t['topic_id']}", t["released"])
+                    else 0
+                )
+                if want != t["released"]:
+                    conn.execute(
+                        "UPDATE topics SET released=? WHERE topic_id=?",
+                        (want, t["topic_id"]),
+                    )
+                    changed += 1
+            conn.commit()
+            st.session_state["_release_flash"] = (
+                f"Saved — questions: {len(new_units)} unit(s), papers: "
+                f"{len(new_papers)} unit(s), {changed} sub-topic change(s)."
+            )
+            st.rerun()
+
+        st.divider()
+        st.markdown(
+            "**Things to know.** Paper release is per unit, not per paper: tick *Papers* for a "
+            "unit and all of its papers become downloadable. A downloadable paper still "
+            "contains questions on every sub-topic of that unit, including any you are still "
+            "holding back in the question bank — the two releases control where students can "
+            "see questions, not what a PDF contains. Release settings live in `data/qbank.db`: "
+            "save here, then run `bash publish.sh` to commit and redeploy. On Streamlit "
+            "Community Cloud the filesystem is temporary, so a change made only in the "
+            "deployed app is lost on the next redeploy."
+        )
+
+    # =========================================================================
+    # Tab 4 — tag questions to sub-topics
     # =========================================================================
     with tab_tag:
         st.title("Tag Questions")
@@ -711,7 +1058,7 @@ if is_admin:
             st.divider()
 
     # =========================================================================
-    # Tab 4 — upload a new paper
+    # Tab 5 — upload a new paper
     # =========================================================================
     with tab_add:
         st.title("Add Paper")
@@ -762,7 +1109,7 @@ if is_admin:
                     st.error(f"Failed to add paper: {e}")
 
     # =========================================================================
-    # Tab 5 — delete a paper
+    # Tab 6 — delete a paper
     # =========================================================================
     with tab_delete:
         st.title("Delete Paper")

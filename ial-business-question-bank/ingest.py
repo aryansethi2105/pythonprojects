@@ -678,6 +678,10 @@ def _migrate_schema(conn):
     tcols = {r[1] for r in conn.execute("PRAGMA table_info(topics)")}
     if "category" not in tcols:
         conn.execute("ALTER TABLE topics ADD COLUMN category TEXT NOT NULL DEFAULT 'syllabus'")
+    # topics: add the per-sub-topic release flag (Phase 8)
+    tcols = {r[1] for r in conn.execute("PRAGMA table_info(topics)")}
+    if "released" not in tcols:
+        conn.execute("ALTER TABLE topics ADD COLUMN released INTEGER NOT NULL DEFAULT 1")
     _seed_qs_topics(conn)
     conn.commit()
 

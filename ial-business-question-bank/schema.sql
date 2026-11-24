@@ -70,7 +70,8 @@ CREATE TABLE IF NOT EXISTS topics (
     category    TEXT NOT NULL DEFAULT 'syllabus',  -- 'syllabus' or 'quantitative'
     topic_code  TEXT NOT NULL UNIQUE,         -- e.g. '1.3.1.1' or 'QS1'
     topic_name  TEXT NOT NULL,                -- e.g. 'The market'
-    sort_order  INTEGER                       -- display order within a unit
+    sort_order  INTEGER,                      -- display order within a unit
+    released    INTEGER NOT NULL DEFAULT 1    -- 0 = held back until an admin releases it
 );
 
 -- Many-to-many between questions and topics.
@@ -78,6 +79,14 @@ CREATE TABLE IF NOT EXISTS question_topics (
     question_id INTEGER NOT NULL REFERENCES questions(question_id) ON DELETE CASCADE,
     topic_id    INTEGER NOT NULL REFERENCES topics(topic_id) ON DELETE CASCADE,
     PRIMARY KEY (question_id, topic_id)
+);
+
+-- App-wide key/value settings. Currently used for 'released_units': the JSON list
+-- of units students are allowed to see, e.g. [1]. Written by the admin
+-- "Release Units" tab; because it lives in the DB it travels with publish.sh.
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 
 -- Helpful indexes for the Phase 3 filter UI.
